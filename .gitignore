@@ -22,3 +22,6 @@ local.properties
 # 签名密钥（含密码，严禁入库）
 keystore/
 keystore.properties
+
+# 测试用账单截图（个人隐私数据，不入库）
+Screenshot_*

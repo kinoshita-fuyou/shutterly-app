@@ -36,11 +36,14 @@ object DemoSimulator {
                 ScreenshotStatus.post(Step.ERROR, "演示截图识别失败：识别模型未就绪（首次使用需联网下载约 30MB）")
                 return@launch
             }
-            val bill = BillTextExtractor.extract(text)
-            ScreenshotStatus.post(Step.EXTRACTED, "演示识别完成 → 金额 ¥${bill.amountFen / 100.0}，请核对")
+            val bills = BillTextExtractor.extractAll(text)
+            ScreenshotStatus.post(
+                Step.EXTRACTED,
+                "演示识别完成 → ${bills.size} 笔，请核对"
+            )
             val intent = Intent(context, ConfirmActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra(ConfirmActivity.EXTRA_BILL, bill)
+                .putParcelableArrayListExtra(ConfirmActivity.EXTRA_BILLS, ArrayList(bills))
             context.startActivity(intent)
         }
     }

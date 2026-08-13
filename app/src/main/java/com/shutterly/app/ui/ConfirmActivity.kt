@@ -34,16 +34,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shutterly.app.data.Category
@@ -58,19 +57,19 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * 识别确认卡片（前台界面）：展示 OCR 提取结果，可修改，确认后入库。
- * 由截图监听服务 / 演示模拟器从后台拉起。
+ * 识别确认卡片（前台界面）：支持多笔账单逐笔确认。
+ * 由截图监听流水线从后台拉起，展示识别结果，可修改，确认后逐笔入库。
  */
 class ConfirmActivity : ComponentActivity() {
 
-    /** 用 Compose 快照状态承载当前账单：onNewIntent 更新后自动重组 */
-    var bill by mutableStateOf<ExtractedBill?>(null)
+    /** 待确认账单列表（快照状态：onNewIntent 更新后自动重组） */
+    var bills by mutableStateOf<List<ExtractedBill>>(emptyList())
         private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        bill = intent.parcelableExtra(EXTRA_BILL, ExtractedBill::class.java)
+        bills = readBills(intent)
         setContent {
             ShutterlyTheme {
                 ConfirmScreen(activity = this)
@@ -80,11 +79,18 @@ class ConfirmActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        bill = intent.parcelableExtra(EXTRA_BILL, ExtractedBill::class.java)
+        bills = readBills(intent)
+    }
+
+    private fun readBills(intent: Intent): List<ExtractedBill> {
+        intent.parcelableArrayListExtraCompat(EXTRA_BILLS)?.let { if (it.isNotEmpty()) return it }
+        intent.parcelableExtraCompat(EXTRA_BILL, ExtractedBill::class.java)?.let { return listOf(it) }
+        return emptyList()
     }
 
     companion object {
         const val EXTRA_BILL = "extra_bill"
+        const val EXTRA_BILLS = "extra_bills"
     }
 }
 
@@ -92,30 +98,36 @@ class ConfirmActivity : ComponentActivity() {
 @Composable
 private fun ConfirmScreen(activity: ConfirmActivity) {
     val vm: ConfirmViewModel = viewModel(factory = ConfirmViewModel.Factory)
-    val saved by vm.saved.collectAsState()
-    val bill = activity.bill
+    val bills = activity.bills
+    var current by remember { mutableIntStateOf(0) }
+    val bill = bills.getOrNull(current)
 
-    var amountStr by remember(bill) {
+    if (bill == null) {
+        // 异常兜底：无数据直接关闭
+        activity.finish()
+        return
+    }
+    val isLast = current == bills.size - 1
+
+    var amountStr by remember(bill, current) {
         mutableStateOf(
-            if (bill?.hasAmount == true) {
-                String.format(Locale.US, "%.2f", bill!!.amountFen / 100.0)
-            } else ""
+            if (bill.hasAmount) String.format(Locale.US, "%.2f", bill.amountFen / 100.0) else ""
         )
     }
-    var date by remember(bill) {
-        mutableStateOf(LocalDate.ofEpochDay(bill?.epochDay ?: LocalDate.now().toEpochDay()))
+    var date by remember(bill, current) {
+        mutableStateOf(LocalDate.ofEpochDay(bill.epochDay))
     }
-    var merchant by remember(bill) { mutableStateOf(bill?.merchant ?: "") }
-    var category by remember(bill) {
-        mutableStateOf(Category.entries.firstOrNull { it.name == bill?.category })
+    var merchant by remember(bill, current) { mutableStateOf(bill.merchant ?: "") }
+    var category by remember(bill, current) {
+        mutableStateOf(Category.entries.firstOrNull { it.name == bill.category })
     }
     var showDatePicker by remember { mutableStateOf(false) }
 
     val fen = Money.yuanToFen(amountStr)
     val canSave = fen != null && category != null
 
-    if (saved) {
-        LaunchedEffect(Unit) { activity.finish() }
+    fun advance() {
+        if (isLast) activity.finish() else current++
     }
 
     Column(
@@ -132,8 +144,18 @@ private fun ConfirmScreen(activity: ConfirmActivity) {
             )
             Spacer(Modifier.width(8.dp))
             Column {
-                Text("识别到一笔交易，请确认", style = MaterialTheme.typography.titleMedium)
-                if (bill?.hasAmount != true) {
+                Text(
+                    if (bills.size > 1) "识别到 ${bills.size} 笔交易（${current + 1}/${bills.size}）" else "识别到一笔交易",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                if (bills.size > 1) {
+                    Text(
+                        "请逐笔核对，确认后自动进入下一笔",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (!bill.hasAmount) {
                     Text(
                         "未能自动提取金额，请手动填写",
                         style = MaterialTheme.typography.bodySmall,
@@ -194,11 +216,11 @@ private fun ConfirmScreen(activity: ConfirmActivity) {
             )
         }
 
-        if (bill?.sourceTextPreview?.isNotBlank() == true) {
+        if (bill.sourceTextPreview.isNotBlank()) {
             Spacer(Modifier.height(12.dp))
             Text("识别原文：", style = MaterialTheme.typography.labelMedium)
             Text(
-                bill!!.sourceTextPreview,
+                bill.sourceTextPreview,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,
@@ -209,12 +231,12 @@ private fun ConfirmScreen(activity: ConfirmActivity) {
         Spacer(Modifier.height(24.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
-                onClick = { activity.finish() },
+                onClick = { advance() },
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp)
             ) {
-                Text("忽略")
+                Text(if (isLast) "忽略" else "忽略此笔")
             }
             Button(
                 onClick = {
@@ -227,13 +249,14 @@ private fun ConfirmScreen(activity: ConfirmActivity) {
                             source = "screenshot"
                         )
                     )
+                    advance()
                 },
                 enabled = canSave,
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp)
             ) {
-                Text("确认入库")
+                Text(if (isLast) "确认入库" else "确认并入下一笔")
             }
         }
     }
@@ -262,10 +285,19 @@ private fun ConfirmScreen(activity: ConfirmActivity) {
 }
 
 @Suppress("DEPRECATION")
-private fun <T> Intent.parcelableExtra(key: String, clazz: Class<T>): T? =
+private fun <T> Intent.parcelableExtraCompat(key: String, clazz: Class<T>): T? =
     if (Build.VERSION.SDK_INT >= 33) {
         getParcelableExtra(key, clazz)
     } else {
         @Suppress("UNCHECKED_CAST")
         getParcelableExtra(key) as? T
+    }
+
+@Suppress("DEPRECATION")
+private fun Intent.parcelableArrayListExtraCompat(key: String): ArrayList<ExtractedBill>? =
+    if (Build.VERSION.SDK_INT >= 33) {
+        getParcelableArrayListExtra(key, ExtractedBill::class.java)
+    } else {
+        @Suppress("UNCHECKED_CAST")
+        getParcelableArrayListExtra<ExtractedBill>(key) as? ArrayList<ExtractedBill>
     }

@@ -79,6 +79,8 @@ object ScreenshotPipeline {
 
     /** 通知监听触发：系统截图通知 → 从 MediaStore 读取（需照片权限） */
     fun onScreenshotNotification(context: Context, tag: String) {
+        // 通知监听进程可能独立存活：先把前台服务拉起（常驻通知 + 状态刷新）
+        if (watcherService == null) startWatcher(context)
         ScreenshotStatus.post(Step.DETECTED, "检测到系统截图（通知通道）")
         enqueue(context, "notif:$tag") { loadLatestFromMediaStore(context) }
     }
@@ -127,20 +129,33 @@ object ScreenshotPipeline {
                 return@launch
             }
 
-            val bill = BillTextExtractor.extract(text)
-            val category = bill.category?.let { Category.entries.firstOrNull { c -> c.name == it }?.displayName }
-            ScreenshotStatus.post(
-                Step.EXTRACTED,
-                "识别完成：¥${Money.fenToYuan(bill.amountFen)} · ${bill.merchant ?: "商户未知"} · ${category ?: "类别待选"}"
-            )
-            launchConfirm(context, bill)
+            val bills = BillTextExtractor.extractAll(text)
+            when {
+                bills.isEmpty() -> {
+                    // 未提取到任何金额：仍弹空卡片人工填写，禁止静默录错
+                    ScreenshotStatus.post(Step.EXTRACTED, "未自动提取到金额，弹出确认卡片请手动填写")
+                    launchConfirmAll(context, listOf(BillTextExtractor.emptyBill(text)))
+                }
+                bills.size == 1 -> {
+                    val b = bills[0]
+                    ScreenshotStatus.post(
+                        Step.EXTRACTED,
+                        "识别完成：¥${Money.fenToYuan(b.amountFen)} · ${b.merchant ?: "商户未知"} · ${b.category?.let { cat -> Category.entries.firstOrNull { c -> c.name == cat }?.displayName } ?: "类别待选"}"
+                    )
+                    launchConfirmAll(context, bills)
+                }
+                else -> {
+                    ScreenshotStatus.post(Step.EXTRACTED, "识别到 ${bills.size} 笔账单，逐笔确认")
+                    launchConfirmAll(context, bills)
+                }
+            }
         }
     }
 
-    private fun launchConfirm(context: Context, bill: ExtractedBill) {
+    private fun launchConfirmAll(context: Context, bills: List<ExtractedBill>) {
         val intent = Intent(context, ConfirmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            putExtra(ConfirmActivity.EXTRA_BILL, bill)
+            putParcelableArrayListExtra(ConfirmActivity.EXTRA_BILLS, ArrayList(bills))
         }
         try {
             context.startActivity(intent)

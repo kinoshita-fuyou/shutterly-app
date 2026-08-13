@@ -236,6 +236,13 @@ private fun WatchControlCard() {
                 }
             }
 
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text(
+                "若锁屏后截屏无响应：请到系统设置 → 应用 → 快门账 → 允许自启动与后台运行（ColorOS/EMUI 等国产系统会杀后台），并保持“通知使用权”开启",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             if (timeline.isNotEmpty()) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Text("最近活动", style = MaterialTheme.typography.labelMedium)

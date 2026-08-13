@@ -63,12 +63,7 @@ object BillTextExtractor {
         val candidates = mutableListOf<Candidate>()
         for (pattern in AMOUNT_PATTERNS) {
             for (m in pattern.findAll(text)) {
-                val raw = m.groupValues[1].replace(",", "")
-                val fen = try {
-                    (BigDecimal(raw) * BigDecimal(100)).toLong()
-                } catch (_: NumberFormatException) {
-                    continue
-                }
+                val fen = parseFen(m.groupValues[1]) ?: continue
                 val start = (m.range.first - CONTEXT_RADIUS).coerceAtLeast(0)
                 val end = (m.range.last + CONTEXT_RADIUS).coerceAtMost(text.length)
                 val trimmed = m.value.trimStart()
@@ -124,6 +119,13 @@ object BillTextExtractor {
         if (full != null) {
             toDate(full.groupValues[1].toInt(), full.groupValues[2].toInt(), full.groupValues[3].toInt())
                 ?.let { return it }
+        }
+        // 相对日期：微信账单列表常用“今天/昨天/前天 HH:mm”
+        val rel = RELATIVE_DATE_REGEX.find(text)?.value
+        if (rel != null) {
+            return LocalDate.now().minusDays(
+                when (rel) { "今天" -> 0L; "昨天" -> 1L; else -> 2L }
+            )
         }
         val md = Regex("""(\d{1,2})\s*月\s*(\d{1,2})\s*日""").find(text)
         if (md != null) {
@@ -182,5 +184,107 @@ object BillTextExtractor {
             category = category?.name,
             sourceTextPreview = text.take(200)
         )
+    }
+
+    /**
+     * 多笔提取：按“金额行”为锚点逐行解析（微信/支付宝账单列表页）。
+     * 每笔：金额 + 向上最近的非杂项行（商户）+ 块内最近日期行（今天/昨天/前天）。
+     * 一笔也返回单元素列表；无任何金额返回空列表（调用方弹空卡片人工填写）。
+     */
+    fun extractAll(text: String): List<ExtractedBill> {
+        val lines = text.split('\n')
+        val amounts = mutableListOf<Pair<Long, Int>>()
+        for ((i, line) in lines.withIndex()) {
+            for (pattern in AMOUNT_PATTERNS) {
+                val m = pattern.find(line) ?: continue
+                val fen = parseFen(m.groupValues[1]) ?: continue
+                if (exclusionAdjacent(line, m.range.first)) break
+                amounts.add(fen to i)
+                break
+            }
+        }
+        if (amounts.isEmpty()) return emptyList()
+
+        return amounts.map { (fen, lineIndex) ->
+            val merchant = findMerchant(lines, lineIndex)
+            val date = findDateNear(lines, lineIndex) ?: extractDate(text) ?: LocalDate.now()
+            // 分类优先看商户名，其次该笔上方文本
+            val blockText = lines.subList(0, lineIndex).joinToString(" ")
+            val category = merchant?.let { Category.fromText(it) } ?: Category.fromText(blockText)
+            ExtractedBill(
+                amountFen = fen,
+                hasAmount = true,
+                epochDay = date.toEpochDay(),
+                merchant = merchant,
+                category = category?.name,
+                sourceTextPreview = text.take(200)
+            )
+        }
+    }
+
+    /** 未提取到金额时的兜底卡片：字段留空/尽力预填，必须人工确认（禁止静默录错） */
+    fun emptyBill(text: String): ExtractedBill {
+        val merchant = extractMerchant(text)
+        return ExtractedBill(
+            amountFen = 0L,
+            hasAmount = false,
+            epochDay = (extractDate(text) ?: LocalDate.now()).toEpochDay(),
+            merchant = merchant,
+            category = (merchant?.let { Category.fromText(it) } ?: Category.fromText(text))?.name,
+            sourceTextPreview = text.take(200)
+        )
+    }
+
+    // ── 多笔解析辅助 ──────────────────────────────────────────────
+
+    private val RELATIVE_DATE_REGEX = Regex("今天|昨天|前天")
+    private val TIME_ONLY_REGEX = Regex("""^\d{1,2}:\d{2}$""")
+
+    /** 列表页杂项行（非商户），命中即跳过 */
+    private val SKIP_MERCHANT_LINES = listOf(
+        "查看明细", "日报设置", "我的账单", "支付服务", "摇优惠", "账单详情",
+        "使用零钱支付", "使用银行卡支付", "使用余额支付", "零钱支付", "微信支付",
+        "支付宝", "钱包", "筛选", "搜索", "更多", "全部", "支出", "收入", "明细"
+    )
+
+    /** 金额行向上最多找 6 行的商户名 */
+    private fun findMerchant(lines: List<String>, amountLine: Int): String? {
+        val start = (amountLine - 1).coerceAtLeast(0)
+        val end = (amountLine - 6).coerceAtLeast(0)
+        for (i in start downTo end) {
+            val line = lines[i].trim()
+            if (line.isEmpty()) continue
+            if (RELATIVE_DATE_REGEX.containsMatchIn(line)) continue
+            if (TIME_ONLY_REGEX.matches(line)) continue
+            if (AMOUNT_PATTERNS.any { it.containsMatchIn(line) }) continue
+            if (SKIP_MERCHANT_LINES.any { line.contains(it) }) continue
+            return cleanMerchant(line)
+        }
+        return null
+    }
+
+    private fun cleanMerchant(line: String): String {
+        var name = line.trim()
+        name = name.trimEnd('。', '，', ',', '.', '！', '!', '；', ';', '〉', '>', '›')
+        name = name.replace(Regex("""(有限公司|有限责任公司|股份有限公司|分公司|支行|营业厅)$"""), "")
+        return name.ifBlank { null } ?: ""
+    }
+
+    /** 向上找最近一行的相对日期（微信列表每笔上方都有日期行） */
+    private fun findDateNear(lines: List<String>, amountLine: Int): LocalDate? {
+        for (i in (amountLine - 1) downTo 0) {
+            val rel = RELATIVE_DATE_REGEX.find(lines[i]) ?: continue
+            return LocalDate.now().minusDays(
+                when (rel.value) { "今天" -> 0L; "昨天" -> 1L; else -> 2L }
+            )
+        }
+        return null
+    }
+
+    private fun parseFen(raw: String): Long? = try {
+        val fen = (BigDecimal(raw.replace(",", "")) * BigDecimal(100)).toLong()
+        if (fen > 0) fen else null
+    } catch (_: NumberFormatException) {
+        null
     }
 }

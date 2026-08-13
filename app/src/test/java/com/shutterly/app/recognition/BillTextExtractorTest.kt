@@ -163,4 +163,57 @@ class BillTextExtractorTest {
         assertEquals("星巴克咖啡店", bill.merchant)
         assertEquals(Category.FOOD.name, bill.category)
     }
+
+    // ── 多笔列表页（用户真实截图：微信账单列表两笔）───────────────
+
+    /** 用户 ColorOS 15 真实截图的 OCR 文本（含 "1台"/"如" 等识别噪音行） */
+    private val wechatBillList = """
+        04:35
+        1台
+        微信支付
+        查看明细
+        日报设置
+        昨天 21:53
+        鑫豪烟酒
+        使用零钱支付
+        ¥13.00
+        账单详情〉
+        昨天 23:46
+        如
+        好想来零食乐园
+        使用零钱支付
+        ¥18.49
+        账单详情〉
+        我的账单
+        支付服务
+        摇优惠
+    """.trimIndent()
+
+    @Test
+    fun `微信账单列表页提取两笔账单`() {
+        val bills = BillTextExtractor.extractAll(wechatBillList)
+        assertEquals(2, bills.size)
+        // 第一笔：鑫豪烟酒 ¥13.00，昨天，烟酒
+        assertEquals(1300L, bills[0].amountFen)
+        assertEquals("鑫豪烟酒", bills[0].merchant)
+        assertEquals(Category.TOBACCO_ALCOHOL.name, bills[0].category)
+        assertEquals(LocalDate.now().minusDays(1), LocalDate.ofEpochDay(bills[0].epochDay))
+        // 第二笔：好想来零食乐园 ¥18.49，昨天，餐饮
+        assertEquals(1849L, bills[1].amountFen)
+        assertEquals("好想来零食乐园", bills[1].merchant)
+        assertEquals(Category.FOOD.name, bills[1].category)
+        assertEquals(LocalDate.now().minusDays(1), LocalDate.ofEpochDay(bills[1].epochDay))
+    }
+
+    @Test
+    fun `单笔详情页昨天日期`() {
+        val text = "微信支付\n向商户付款\n星巴克咖啡店\n实付 ¥36.00\n昨天 14:32"
+        assertEquals(LocalDate.now().minusDays(1), BillTextExtractor.extractDate(text))
+        assertEquals(1, BillTextExtractor.extractAll(text).size)
+    }
+
+    @Test
+    fun `无金额时多笔提取返回空列表`() {
+        assertTrue(BillTextExtractor.extractAll("只有文本没有金额").isEmpty())
+    }
 }
