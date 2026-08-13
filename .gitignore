@@ -1,0 +1,21 @@
+# ── 提示词文档不入库（按用户要求忽略）──
+记账App-ClaudeCode提示词.md
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+captures/
+
+# 本地配置（含 SDK 路径，因人而异）
+local.properties
+
+# 产物
+*.apk
+*.aab
+*.keystore

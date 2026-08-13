@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快门式相机图标前景（108dp 自适应图标画布） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 外环 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5"
+        android:pathData="M54,24 a30,30 0 1,0 0.001,0 z" />
+    <!-- 快门叶片 ×6 -->
+    <group android:pivotX="54" android:pivotY="54">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        <group android:rotation="60">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        </group>
+        <group android:rotation="120">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        </group>
+        <group android:rotation="180">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        </group>
+        <group android:rotation="240">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        </group>
+        <group android:rotation="300">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M51.5,24 L56.5,24 L57.5,46 L50.5,46 Z" />
+        </group>
+    </group>
+    <!-- 中心孔 -->
+    <path
+        android:fillColor="#2E6E5C"
+        android:pathData="M54,45 m-8,0 a8,8 0 1,1 16,0 a8,8 0 1,1 -16,0" />
+</vector>
