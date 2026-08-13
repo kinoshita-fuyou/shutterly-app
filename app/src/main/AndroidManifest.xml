@@ -2,8 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 完全本地应用：不声明 INTERNET 权限，数据不上传 -->
-    <!-- Android 13+ 读取系统截图媒体需要媒体权限（仅 ≤33 有效；34+ 走无障碍降级方案） -->
+    <!-- 前台服务（Android 14+ 需 specialUse 类型） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+ 通知权限（前台服务状态通知可见性） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 读取系统截图媒体：≤33 READ_EXTERNAL_STORAGE / 33 READ_MEDIA_IMAGES / 34+ 需“所有照片”授权 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -25,7 +31,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 识别确认卡片：前台界面，由无障碍服务从后台拉起 -->
+        <!-- 识别确认卡片：前台界面，由前台服务从后台拉起 -->
         <activity
             android:name=".ui.ConfirmActivity"
             android:excludeFromRecents="true"
@@ -34,18 +40,25 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
-        <!-- 截图监听无障碍服务 -->
+        <!-- 截图监听前台服务（常驻 + 状态通知，START_STICKY 自动重启） -->
         <service
-            android:name=".screenshot.ScreenshotMonitorService"
+            android:name=".screenshot.ScreenshotWatcherService"
             android:exported="false"
-            android:label="@string/accessibility_service_label"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="screenshot_ocr_monitor" />
+        </service>
+
+        <!-- 通知监听：接收系统截图通知（免无障碍，开启一次长期有效） -->
+        <service
+            android:name=".screenshot.ScreenshotNotifierListener"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
         </service>
     </application>
 </manifest>

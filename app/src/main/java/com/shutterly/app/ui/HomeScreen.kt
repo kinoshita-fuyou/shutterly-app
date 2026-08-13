@@ -1,10 +1,8 @@
 package com.shutterly.app.ui
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,12 +33,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -57,14 +58,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.shutterly.app.data.Category
 import com.shutterly.app.data.Money
 import com.shutterly.app.data.Record
-import com.shutterly.app.recognition.OcrStatus
-import com.shutterly.app.screenshot.ScreenshotMonitorService
-import kotlinx.coroutines.delay
+import com.shutterly.app.screenshot.Permissions
+import com.shutterly.app.screenshot.ScreenshotPipeline
+import com.shutterly.app.screenshot.ScreenshotStatus
+import com.shutterly.app.screenshot.Step
+import com.shutterly.app.screenshot.StatusEvent
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,7 +86,7 @@ fun HomeScreen(
     var pendingDelete by remember { mutableStateOf<Record?>(null) }
 
     LaunchedEffect(Unit) {
-        OcrStatus.events.collect { snackbarHostState.showSnackbar(it) }
+        ScreenshotStatus.events.collect { snackbarHostState.showSnackbar(it.message) }
     }
 
     Scaffold(
@@ -105,9 +111,9 @@ fun HomeScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 96.dp)
+            contentPadding = PaddingValues(bottom = 96.dp)
         ) {
-            item { ServiceBanner() }
+            item { WatchControlCard() }
             item { MonthSummaryCard(monthRecords, onClick = onStats) }
             item {
                 Text(
@@ -151,29 +157,30 @@ fun HomeScreen(
     }
 }
 
-/** 引导横幅：无障碍服务未开启 / 媒体读取权限缺失时显示 */
+/**
+ * 监听控制卡片：开关 + 权限状态行 + 最近活动时间线。
+ * 让用户随时看到系统正在干什么，权限缺失时一键跳转修复。
+ */
 @Composable
-private fun ServiceBanner() {
+private fun WatchControlCard() {
     val context = LocalContext.current
-    val a11yEnabled = remember { mutableStateOf(isAccessibilityEnabled(context)) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            a11yEnabled.value = isAccessibilityEnabled(context)
-            delay(2000)
-        }
+    val running by ScreenshotStatus.running.collectAsState()
+    val timeline by ScreenshotStatus.timeline.collectAsState()
+    var enabled by remember { mutableStateOf(ScreenshotPipeline.isEnabled(context)) }
+
+    val mediaLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val granted = results.values.all { it }
+        ScreenshotStatus.post(
+            if (granted) Step.IDLE else Step.ERROR,
+            if (granted) "照片与媒体权限已授予"
+            else "照片权限未授予：请在系统设置里为快门账开启“允许访问所有照片”（Android 14+ 需要）"
+        )
     }
-    val mediaPermission = if (Build.VERSION.SDK_INT >= 33) {
-        Manifest.permission.READ_MEDIA_IMAGES
-    } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
-    }
-    val hasMedia = ContextCompat.checkSelfPermission(context, mediaPermission) ==
-        PackageManager.PERMISSION_GRANTED
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
-
-    if (a11yEnabled.value && hasMedia) return
 
     Card(
         modifier = Modifier
@@ -181,31 +188,130 @@ private fun ServiceBanner() {
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("开启截图自动记账", style = MaterialTheme.typography.titleMedium)
-            Text(
-                when {
-                    a11yEnabled.value -> "已开启无障碍服务，还需授予截图读取权限（仅 Android 13 及以下生效）"
-                    !hasMedia -> "开启无障碍服务并授予媒体权限后，截支付账单图将自动识别记账"
-                    else -> "开启无障碍服务后，截支付账单图将自动识别记账（全程本地，不联网）"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row {
-                if (!hasMedia) {
-                    TextButton(onClick = { permissionLauncher.launch(mediaPermission) }) {
-                        Text("授予媒体权限")
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("截屏自动识别", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            running -> "前台服务运行中：截支付账单图后 2 秒内弹确认卡片"
+                            enabled -> "监听已开启，正在启动前台服务…"
+                            else -> "监听已关闭：开启后截屏才会被识别"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                if (!a11yEnabled.value) {
-                    TextButton(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }) {
-                        Text("去开启无障碍服务")
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { v ->
+                        enabled = v
+                        ScreenshotPipeline.setEnabled(context, v)
+                        if (v) ScreenshotStatus.post(Step.IDLE, "正在启动截图监听…")
                     }
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+            PermissionRow(
+                label = "通知使用权（识别截图的关键，开启一次长期有效）",
+                granted = Permissions.hasNotificationAccess(context),
+                actionText = "去开启"
+            ) {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+            PermissionRow(
+                label = "照片与媒体（读取截图图片）",
+                granted = Permissions.hasMediaPermission(context),
+                actionText = "授权"
+            ) {
+                mediaLauncher.launch(Permissions.mediaPermissions())
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                PermissionRow(
+                    label = "通知权限（显示运行状态与结果）",
+                    granted = Permissions.hasPostNotification(context),
+                    actionText = "授权"
+                ) {
+                    notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
+            if (timeline.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text("最近活动", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                timeline.take(6).forEach { event ->
+                    TimelineRow(event)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PermissionRow(
+    label: String,
+    granted: Boolean,
+    actionText: String,
+    onAction: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(if (granted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f)
+        )
+        if (!granted) {
+            TextButton(onClick = onAction) {
+                Text(actionText, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineRow(event: StatusEvent) {
+    val color = when (event.step) {
+        Step.ERROR -> MaterialTheme.colorScheme.error
+        Step.EXTRACTED, Step.CONFIRMED -> Color(0xFF2E7D32)
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val time = LocalTime.from(Instant.ofEpochMilli(event.time).atZone(ZoneId.systemDefault()))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            event.message,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            time.format(TIME_FORMAT),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
     }
 }
 
@@ -342,11 +448,4 @@ private fun DemoSection() {
     }
 }
 
-fun isAccessibilityEnabled(context: Context): Boolean {
-    val expected = ComponentName(context, ScreenshotMonitorService::class.java).flattenToString()
-    val enabled = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    ) ?: return false
-    return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
-}
+private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")

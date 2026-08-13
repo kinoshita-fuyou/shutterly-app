@@ -6,8 +6,11 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.shutterly.app.data.Money
 import com.shutterly.app.data.Record
 import com.shutterly.app.data.RecordRepository
+import com.shutterly.app.screenshot.ScreenshotStatus
+import com.shutterly.app.screenshot.Step
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -22,6 +25,10 @@ class ConfirmViewModel(private val repo: RecordRepository) : ViewModel() {
         viewModelScope.launch {
             repo.add(record)
             _saved.value = true
+            ScreenshotStatus.post(
+                Step.CONFIRMED,
+                "已入账 ¥${Money.fenToYuan(record.amountFen)}${record.merchant?.let { " · $it" } ?: ""}"
+            )
         }
     }
 

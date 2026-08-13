@@ -20,16 +20,12 @@ class OcrEngine {
         ChineseTextRecognizerOptions.Builder().build()
     )
 
-    /** 识别 Bitmap，返回全部识别文本；模型未就绪等失败返回 null */
+    /** 识别 Bitmap，返回全部识别文本；模型未就绪等失败返回 null（由调用方报错提示） */
     suspend fun recognize(bitmap: Bitmap): String? {
         val task = recognizer.process(InputImage.fromBitmap(bitmap, 0))
         return try {
             task.await().text
         } catch (e: Exception) {
-            val code = if (e is com.google.mlkit.common.MlKitException) e.errorCode else 0
-            if (code == com.google.mlkit.common.MlKitException.UNAVAILABLE) {
-                OcrStatus.onEvent("中文识别模型尚未就绪（首次使用需联网下载约 30MB），已自动重试…")
-            }
             null
         }
     }

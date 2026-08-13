@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知栏小图标（快门） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2 a10,10 0 1,0 0.001,0 z" />
+    <path
+        android:fillColor="#FF2E6E5C"
+        android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    <group android:pivotX="12" android:pivotY="12" android:rotation="60">
+        <path android:fillColor="#FF2E6E5C" android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="120">
+        <path android:fillColor="#FF2E6E5C" android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="180">
+        <path android:fillColor="#FF2E6E5C" android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="240">
+        <path android:fillColor="#FF2E6E5C" android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    </group>
+    <group android:pivotX="12" android:pivotY="12" android:rotation="300">
+        <path android:fillColor="#FF2E6E5C" android:pathData="M11.6,7 L12.4,7 L12.55,12 L11.45,12 Z" />
+    </group>
+</vector>

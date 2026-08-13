@@ -9,11 +9,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.shutterly.app.screenshot.ScreenshotPipeline
 import com.shutterly.app.ui.theme.ShutterlyTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 启动时按用户设置拉起截图监听前台服务（被系统回收后由 START_STICKY 自动恢复）
+        if (ScreenshotPipeline.isEnabled(this)) {
+            ScreenshotPipeline.startWatcher(this)
+        }
         enableEdgeToEdge()
         setContent {
             ShutterlyTheme {
