@@ -18,4 +18,7 @@ local.properties
 # 产物
 *.apk
 *.aab
-*.keystore
+
+# 签名密钥（含密码，严禁入库）
+keystore/
+keystore.properties
